@@ -1013,16 +1013,66 @@ out:
 }
 EXPORT_SYMBOL_GPL(kvm_cpuid);
 
+u64 totalCycles;
+EXPORT_SYMBOL_GPL(totalCycles);
+
+u64 exitCycleArray[EXIT_SIZE];
+EXPORT_SYMBOL_GPL(exitCycleArray);
+
+u32 totalCounts;
+EXPORT_SYMBOL_GPL(totalCounts);
+
+u32 exitCountArray[EXIT_SIZE];
+EXPORT_SYMBOL_GPL(exitCountArray);
+
 int kvm_emulate_cpuid(struct kvm_vcpu *vcpu)
 {
-	u32 eax, ebx, ecx, edx;
+	u32 eax, ebx, ecx, edx, counts, low32, high32;
+	u64 cycles;
 
 	if (cpuid_fault_enabled(vcpu) && !kvm_require_cpl(vcpu, 0))
 		return 1;
 
 	eax = kvm_rax_read(vcpu);
 	ecx = kvm_rcx_read(vcpu);
-	kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);
+	
+        if ( eax == 0x4FFFFFFF ) {
+        	counts = totalCounts;
+ 		eax = counts;
+	} else if ( eax == 0x4FFFFFFE ) {
+		cycles = totalCycles;
+		low32 = (u32)(cycles & 0xffffffff); // low 32 bit
+		high32 = (u32)(cycles >> 32); // high 32 bit
+		ecx = low32;
+		ebx = high32;
+        } else if ( eax == 0x4FFFFFFD ) {
+		if (ecx == 0) {
+			eax = 0;
+			ebx = 0;
+			ecx = 0;
+			edx = 0xFFFFFFFF;
+		} else {
+			counts = exitCountArray[ecx % EXIT_SIZE];
+			printk("0x4FFFFFFD: %u \n", counts);
+			eax = counts;
+		}
+		
+        } else if ( eax == 0x4FFFFFFC ) {
+		if (ecx == 0) {
+			eax = 0;
+			ebx = 0;
+			ecx = 0;
+			edx = 0xFFFFFFFF;
+		} else {
+			cycles = exitCycleArray[ecx % EXIT_SIZE]; 
+			low32 = (u32)(cycles & 0xffffffff); // low 32 bit
+			high32 = (u32)(cycles >> 32); // high 32 bit
+			ecx = low32;
+			ebx = high32;
+		}
+	} else {
+	   kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);
+	}
 	kvm_rax_write(vcpu, eax);
 	kvm_rbx_write(vcpu, ebx);
 	kvm_rcx_write(vcpu, ecx);
